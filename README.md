@@ -40,3 +40,5 @@ Un script automatisé est fourni pour démarrer facilement les deux environnemen
 Ce script va automatiquement ouvrir deux fenêtres de commande :
 - L'une pour lancer le serveur backend (`node index.js`).
 - L'autre pour lancer le serveur frontend de développement (`npm run dev`).
+
+- Le code de beta lors de l'inscription est BETA2026
