@@ -37,14 +37,9 @@ const handleLogin = async () => {
 
 <template>
   <div class="auth-container dashboard">
-    <div class="background-orbs">
-      <div class="orb orb-1"></div>
-      <div class="orb orb-2"></div>
-      <div class="orb orb-3"></div>
-    </div>
     <div class="glass-container auth-box">
       <header class="header">
-        <h1><span class="gradient-text">Connexion</span></h1>
+        <h1>Connexion</h1>
         <p>Accédez à GeoScraper Pro</p>
       </header>
       
@@ -78,34 +73,64 @@ const handleLogin = async () => {
   justify-content: center;
   align-items: center;
   min-height: 100vh;
-}
-.auth-box {
-  max-width: 450px;
   width: 100%;
 }
+
+.auth-box {
+  max-width: 465px;
+  width: 100%;
+  padding: 3.5rem;
+}
+
+.header {
+  text-align: center;
+  margin-bottom: 0.5rem;
+}
+
+.header h1 {
+  font-family: 'Outfit', sans-serif;
+  font-size: 1.75rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-main);
+  margin-bottom: 0.25rem;
+}
+
+.header p {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+}
+
 .auth-form {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1.25rem;
 }
+
 .full-width {
   width: 100%;
 }
+
 .error-text {
   color: #ef4444;
-  font-size: 0.9rem;
+  font-size: 0.8rem;
+  font-weight: 500;
   text-align: center;
 }
+
 .auth-link {
   text-align: center;
-  margin-top: 1rem;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
   color: var(--text-muted);
 }
+
 .auth-link a {
-  color: var(--primary);
+  color: var(--text-main);
   text-decoration: none;
   font-weight: 600;
 }
+
 .auth-link a:hover {
   text-decoration: underline;
 }

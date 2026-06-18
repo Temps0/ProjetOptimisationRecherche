@@ -12,6 +12,23 @@ app.use(express.json());
 const JWT_SECRET = 'supersecretbeta2026';
 const BETA_CODE = 'BETA2026';
 
+// Helper function to block heavy assets (images, fonts, videos)
+const optimizePage = async (page) => {
+    try {
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+            const resourceType = req.resourceType();
+            if (['image', 'media', 'font'].includes(resourceType)) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
+    } catch (e) {
+        console.log('Error setting up request interception:', e.message);
+    }
+};
+
 app.post('/api/register', async (req, res) => {
     const { email, password, betaCode } = req.body;
 
@@ -60,7 +77,7 @@ app.post('/api/login', (req, res) => {
 
 
 app.get('/api/scrape', async (req, res) => {
-    const { query, location, limit, token } = req.query;
+    const { query, location, limit, token, lat, lng, zoom } = req.query;
 
     if (!token) {
         return res.status(401).json({ error: 'Non autorisé' });
@@ -72,8 +89,8 @@ app.get('/api/scrape', async (req, res) => {
         return res.status(401).json({ error: 'Token invalide ou expiré' });
     }
 
-    if (!query || !location) {
-        return res.status(400).json({ error: 'Query and location are required' });
+    if (!query || (!location && (!lat || !lng))) {
+        return res.status(400).json({ error: 'Query and location (or coordinates) are required' });
     }
 
     res.setHeader('Content-Type', 'text/event-stream');
@@ -87,7 +104,12 @@ app.get('/api/scrape', async (req, res) => {
 
     let browser;
     try {
-        console.log(`Starting scrape for: ${query} in ${location}`);
+        const hasCoords = lat && lng;
+        if (hasCoords) {
+            console.log(`Starting optimized scrape for: ${query} around coords: ${lat}, ${lng} (zoom ${zoom || 15})`);
+        } else {
+            console.log(`Starting optimized scrape for: ${query} in ${location}`);
+        }
         sendEvent('progress', 5);
 
         browser = await puppeteer.launch({
@@ -95,15 +117,25 @@ app.get('/api/scrape', async (req, res) => {
             args: ['--no-sandbox', '--disable-setuid-sandbox', '--lang=fr-FR']
         });
         const page = await browser.newPage();
+        
+        // Optimizing the main scraping page by blocking heavy assets
+        await optimizePage(page);
 
         // Set a reasonable viewport
         await page.setViewport({ width: 1280, height: 800 });
 
-        const searchQuery = encodeURIComponent(`${query} in ${location}`);
-        const url = `https://www.google.fr/maps/search/${searchQuery}?hl=fr`;
+        let url;
+        if (hasCoords) {
+            const zoomVal = zoom || 15;
+            url = `https://www.google.fr/maps/search/${encodeURIComponent(query)}/@${lat},${lng},${zoomVal}z?hl=fr`;
+        } else {
+            const searchQuery = encodeURIComponent(`${query} in ${location}`);
+            url = `https://www.google.fr/maps/search/${searchQuery}?hl=fr`;
+        }
         console.log(`Navigating to: ${url}`);
 
-        await page.goto(url, { waitUntil: 'networkidle2', timeout: 60000 });
+        // Navigate with domcontentloaded for instant reaction
+        await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 60000 });
         sendEvent('progress', 10);
 
         // Handle cookie consent popup if it appears
@@ -112,15 +144,19 @@ app.get('/api/scrape', async (req, res) => {
             if (consentButton) {
                 console.log('Accepting cookies...');
                 await consentButton.click();
-                await page.waitForTimeout(2000);
+                await new Promise(r => setTimeout(r, 1000));
             }
         } catch (e) {
             console.log('No cookie popup found');
         }
 
-        // Wait for results container
+        // Wait dynamically for results container or at least one link
         console.log('Waiting for results...');
-        await new Promise(resolve => setTimeout(resolve, 3000));
+        try {
+            await page.waitForSelector('a[href*="/maps/place/"]', { timeout: 15000 });
+        } catch (e) {
+            console.log('Timeout waiting for initial place links. Continuing...');
+        }
 
         const results = [];
 
@@ -133,6 +169,7 @@ app.get('/api/scrape', async (req, res) => {
         let lastLoadedCount = 0;
         let noNewItemsAttempts = 0;
 
+        // Optimized scrolling delay from 2s to 1s
         while (loadedElementsCount < maxResults && scrollAttempts < 100 && noNewItemsAttempts < 5) {
             loadedElementsCount = await page.evaluate(() => document.querySelectorAll('a[href*="/maps/place/"]').length);
             if (loadedElementsCount >= maxResults) break;
@@ -152,8 +189,8 @@ app.get('/api/scrape', async (req, res) => {
                 const feed = document.querySelector('div[role="feed"]');
                 if (feed) feed.scrollBy(0, 10000);
             });
-            // Wait for new items to load
-            await new Promise(r => setTimeout(r, 2000));
+            // Wait for new items to load - optimized to 1000ms
+            await new Promise(r => setTimeout(r, 1000));
             scrollAttempts++;
             sendEvent('progress', 10 + Math.floor((loadedElementsCount / maxResults) * 10)); // max 20%
         }
@@ -181,12 +218,25 @@ app.get('/api/scrape', async (req, res) => {
 
                 try {
                     const newPage = await browser.newPage();
-                    await newPage.goto(place.url, { waitUntil: 'networkidle2', timeout: 30000 });
+                    // Optimizing detail page by blocking heavy assets
+                    await optimizePage(newPage);
+
+                    // Instant page load waiting only for DOM structure
+                    await newPage.goto(place.url, { waitUntil: 'domcontentloaded', timeout: 30000 });
+
+                    // Wait specifically for the main title to render
+                    try {
+                        await newPage.waitForSelector('h1.DUwDvf', { timeout: 6000 });
+                    } catch (e) {
+                        console.log(`Timeout waiting for heading on ${place.name}, proceeding with fallback...`);
+                    }
 
                     const details = await newPage.evaluate(() => {
                         let phone = 'Non renseigné';
                         let website = 'Non renseigné';
                         let adresse = 'Non renseigné';
+                        let note = 'Non renseigné';
+                        let ouverture = 'Non renseigné';
 
                         // Try to find phone
                         const phoneBtn = document.querySelector('button[data-tooltip*="téléphone"], button[data-item-id*="phone:"]');
@@ -212,7 +262,44 @@ app.get('/api/scrape', async (req, res) => {
                             else if (adresse.includes('Adresse : ')) adresse = adresse.replace('Adresse : ', '').trim();
                         }
 
-                        return { phone, website, adresse };
+                        // Try to find note
+                        const noteDiv = document.querySelector('div.F7nice span[aria-hidden="true"]');
+                        if (noteDiv && noteDiv.innerText.trim().length > 0) {
+                            note = noteDiv.innerText.trim();
+                        } else {
+                            const noteAria = document.querySelector('span[role="img"][aria-label*="étoile"], span[role="img"][aria-label*="star"], div[role="img"][aria-label*="étoile"], div[role="img"][aria-label*="star"]');
+                            if (noteAria) {
+                                const ariaLabel = noteAria.getAttribute('aria-label');
+                                const match = ariaLabel.match(/[\d,.]+/);
+                                if (match) note = match[0];
+                            } else {
+                                const noteBtn = document.querySelector('button[data-item-id="reviews-sort-button-group-button-0"], button[data-tooltip*="Note"]');
+                                if (noteBtn) {
+                                    note = noteBtn.getAttribute('aria-label') || noteBtn.innerText || 'Trouvé';
+                                    if (note.includes('Note: ')) note = note.replace('Note: ', '').trim();
+                                    else if (note.includes('Note : ')) note = note.replace('Note : ', '').trim();
+                                }
+                            }
+                        }
+
+                        // Try to find ouverture
+                        const hoursElem = document.querySelector('div[data-item-id="oh"], button[data-item-id="oh"]');
+                        if (hoursElem) {
+                            const text = hoursElem.innerText || '';
+                            if (text.includes('Ouvert 24h/24')) ouverture = 'Ouvert 24h/24';
+                            else if (text.includes('Ouvert')) ouverture = 'Ouvert';
+                            else if (text.includes('Fermé')) ouverture = 'Fermé';
+                        } else {
+                            const spans = Array.from(document.querySelectorAll('span'));
+                            const statusSpan = spans.find(s => s.innerText && (s.innerText.startsWith('Ouvert') || s.innerText.startsWith('Fermé')));
+                            if (statusSpan) {
+                                if (statusSpan.innerText.includes('Ouvert 24h/24')) ouverture = 'Ouvert 24h/24';
+                                else if (statusSpan.innerText.includes('Ouvert')) ouverture = 'Ouvert';
+                                else if (statusSpan.innerText.includes('Fermé')) ouverture = 'Fermé';
+                            }
+                        }
+
+                        return { phone, website, adresse, note, ouverture };
                     });
 
                     extractedCount++;
@@ -222,7 +309,8 @@ app.get('/api/scrape', async (req, res) => {
                         phone: details.phone,
                         website: details.website,
                         adresse: details.adresse,
-                        email: 'Nécessite de visiter le site',
+                        note: details.note,
+                        ouverture: details.ouverture,
                         status: 'Extracted'
                     };
 
