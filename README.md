@@ -2,15 +2,15 @@
 
 Ce projet est une application web permettant d'optimiser et d'automatiser des recherches de données. Il est composé d'une interface utilisateur moderne et d'une API backend robuste.
 
-## 🚀 Technologies utilisées
+##  Technologies utilisées
 
 Le projet est divisé en deux parties principales :
 
-### 💻 Frontend (Dossier `Projet_optimisationRecherche/`)
+###  Frontend (Dossier `Projet_optimisationRecherche/`)
 L'interface utilisateur est construite avec les technologies modernes du web :
 - **Vue.js 3** (Composition API) pour l'interface interactive.
 - **Vue Router** pour la navigation entre les pages.
-- **Vite** comme outil de build ultra-rapide.
+- **Vite** comme outil de build.
 - **TypeScript** pour un typage statique et un code plus sûr.
 - **Leaflet** pour l'affichage et la gestion de cartes interactives.
 - **XLSX** pour la lecture et la manipulation de fichiers Excel.
@@ -24,7 +24,7 @@ L'API qui gère la logique métier, l'authentification et les données :
 
 ---
 
-## 🛠️ Comment lancer le projet en local
+##  Comment lancer le projet en local
 
 Un script automatisé est fourni pour démarrer facilement les deux environnements sous Windows.
 
