@@ -15,7 +15,7 @@ L'interface utilisateur est construite avec les technologies modernes du web :
 - **Leaflet** pour l'affichage et la gestion de cartes interactives.
 - **XLSX** pour la lecture et la manipulation de fichiers Excel.
 
-### ⚙️ Backend (Dossier `server/`)
+###  Backend (Dossier `server/`)
 L'API qui gère la logique métier, l'authentification et les données :
 - **Node.js** avec **Express.js** pour la création de l'API REST.
 - **SQLite3** pour la base de données relationnelle légère et intégrée.
