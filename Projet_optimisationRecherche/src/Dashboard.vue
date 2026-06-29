@@ -19,7 +19,7 @@ const websiteFilter = ref<string>('all');
 const sortBy = ref<string>('default');
 
 const currentPage = ref(1);
-const itemsPerPage = ref(20);
+const itemsPerPage = ref(50);
 
 watch([minRating, websiteFilter, sortBy], () => {
   currentPage.value = 1;
