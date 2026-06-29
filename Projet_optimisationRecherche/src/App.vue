@@ -6,12 +6,15 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@300;400;500;600;700;800&display=swap');
 
 :root {
-  /* Warm off-white background with extremely subtle purple undertone */
-  --bg-color: #faf9fc;
+  /* Light minimalist background */
+  --bg-color: #fafafa;
   --surface-color: #ffffff;
-  --border-color: #ede9fe; /* Soft violet-tinted border */
-  --text-main: #1c1230; /* Deep charcoal violet */
-  --text-muted: #7c728a; /* Muted text with soft purple/gray hue */
+  --surface-raised: #f4f4f5;
+  --border-color: #e4e4e7;
+  
+  /* Text */
+  --text-main: #18181b;
+  --text-muted: #71717a;
   
   /* Signature Brand color: Royal Violet */
   --primary: #6d28d9;
@@ -19,12 +22,12 @@
   --primary-contrast: #ffffff;
   
   /* Status colors */
-  --accent: #0d9488; /* Emerald teal for success dot */
-  --warning: #ca8a04; /* Amber yellow for scraping dot */
+  --accent: #10b981; /* Green */
+  --warning: #f59e0b; /* Yellow */
   
-  --radius-sm: 6px;
-  --radius-md: 10px;
-  --radius-lg: 20px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 24px;
 }
 
 * {
@@ -33,16 +36,33 @@
   padding: 0;
 }
 
+html {
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
 body {
   font-family: 'Inter', sans-serif;
   background-color: var(--bg-color);
   color: var(--text-main);
   min-height: 100vh;
-  display: flex;
-  justify-content: center;
-  align-items: center;
   overflow-x: hidden;
-  -webkit-font-smoothing: antialiased;
+}
+
+/* Navbar fade-down animation (global) */
+@keyframes fade-down {
+  from {
+    opacity: 0;
+    transform: translateY(-16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-down {
+  animation: fade-down 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* Base dashboard wrap */
@@ -63,8 +83,8 @@ body {
   border-radius: var(--radius-lg);
   padding: 4rem;
   width: 100%;
-  max-width: 1320px; /* Wider for asymmetrical side-by-side view */
-  box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.05), 0 1px 2px -1px rgba(0, 0, 0, 0.05);
+  max-width: 1320px;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.04), inset 0 1px 0 rgba(255,255,255,0.5);
   display: flex;
   flex-direction: column;
   gap: 2.5rem;
@@ -110,6 +130,7 @@ body {
   outline: none;
   border-color: var(--primary);
   background: var(--surface-color);
+  box-shadow: 0 0 0 2px rgba(109, 40, 217, 0.1);
 }
 
 /* Primary Button Styling */
@@ -117,7 +138,7 @@ body {
   background: var(--primary);
   color: var(--primary-contrast);
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: 9999px;
   padding: 0.75rem 2rem;
   font-size: 0.9rem;
   font-weight: 600;

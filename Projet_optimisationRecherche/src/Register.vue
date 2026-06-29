@@ -46,6 +46,9 @@ const handleRegister = async () => {
   <div class="auth-container dashboard">
     <div class="glass-container auth-box">
       <header class="header">
+        <svg viewBox="0 0 256 256" class="auth-logo" fill="currentColor">
+          <path d="M 144 256 L 27.598 256 L 144 139.598 Z M 256 207.5 L 200 256 L 200 56 L 0 56 L 48 0 L 256 0 Z M 0 204.402 L 0 112 L 92.402 112 Z" />
+        </svg>
         <h1>Inscription</h1>
         <p>Rejoignez la Bêta GeoScraper Pro</p>
       </header>
@@ -96,20 +99,30 @@ const handleRegister = async () => {
 
 .header {
   text-align: center;
-  margin-bottom: 0.5rem;
+  margin-bottom: 2rem;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.auth-logo {
+  width: 32px;
+  height: 32px;
+  color: var(--text-main);
+  margin-bottom: 1.5rem;
 }
 
 .header h1 {
   font-family: 'Outfit', sans-serif;
   font-size: 1.75rem;
-  font-weight: 600;
+  font-weight: 400;
   letter-spacing: -0.02em;
   color: var(--text-main);
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.5rem;
 }
 
 .header p {
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   color: var(--text-muted);
 }
 

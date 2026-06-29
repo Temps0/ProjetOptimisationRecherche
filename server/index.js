@@ -77,7 +77,7 @@ app.post('/api/login', (req, res) => {
 
 
 app.get('/api/scrape', async (req, res) => {
-    const { query, location, limit, token, lat, lng, zoom } = req.query;
+    const { query, location, limit, token, lat, lng, zoom, profile } = req.query;
 
     if (!token) {
         return res.status(401).json({ error: 'Non autorisé' });
@@ -231,7 +231,8 @@ app.get('/api/scrape', async (req, res) => {
                         console.log(`Timeout waiting for heading on ${place.name}, proceeding with fallback...`);
                     }
 
-                    const details = await newPage.evaluate(() => {
+                    const profileType = profile;
+                    const details = await newPage.evaluate((activeProfile) => {
                         let phone = 'Non renseigné';
                         let website = 'Non renseigné';
                         let adresse = 'Non renseigné';
@@ -299,8 +300,17 @@ app.get('/api/scrape', async (req, res) => {
                             }
                         }
 
-                        return { phone, website, adresse, note, ouverture };
-                    });
+                        let businessAnalysis = '';
+                        if (activeProfile === 'dev') {
+                            if (website === 'Non renseigné' || !website) {
+                                businessAnalysis = "🏢 Taille estimée : Petite Entreprise / Artisan. 🎯 Opportunité : Forte. Cible idéale pour la création d'un premier site vitrine.";
+                            } else {
+                                businessAnalysis = "🏢 Taille estimée : PME. 🎯 Opportunité : Modérée à Forte. Cible potentielle pour une refonte de site web, optimisation SEO ou création de logiciel métier sur mesure.";
+                            }
+                        }
+
+                        return { phone, website, adresse, note, ouverture, businessAnalysis };
+                    }, profileType);
 
                     extractedCount++;
                     const resultItem = {
@@ -311,6 +321,7 @@ app.get('/api/scrape', async (req, res) => {
                         adresse: details.adresse,
                         note: details.note,
                         ouverture: details.ouverture,
+                        businessAnalysis: details.businessAnalysis,
                         status: 'Extracted'
                     };
 

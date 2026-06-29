@@ -10,6 +10,7 @@ const limit = ref(5);
 const isExtracting = ref(false);
 const progress = ref(0);
 const results = ref<any[]>([]);
+const activeProfile = ref('standard');
 let eventSource: EventSource | null = null;
 
 // Reactive state for filters and sorting
@@ -26,9 +27,19 @@ const searchResultsMap = ref<any[]>([]);
 const isSearchingMap = ref(false);
 const radius = ref(2000); // Visual search radius indicator in meters (default 2km)
 
+const selectedResult = ref<any>(null);
+
 let map: L.Map | null = null;
 let marker: L.Marker | null = null;
 let circle: L.Circle | null = null;
+
+const openResult = (result: any) => {
+  selectedResult.value = result;
+};
+
+const closeResultModal = () => {
+  selectedResult.value = null;
+};
 
 // Nominatim OpenStreetMap Geocoding
 const searchLocationOnMap = async () => {
@@ -202,6 +213,14 @@ const hasWebsite = (website: any): boolean => {
   return !['non renseigné', 'n/a', 'non trouvé', 'non renseignee', ''].includes(webStr);
 };
 
+const getOuvertureClass = (ouverture: any): string => {
+  if (!ouverture) return 'text-muted';
+  const str = String(ouverture).toLowerCase();
+  if (str.includes('ouvert')) return 'text-green';
+  if (str.includes('fermé') || str.includes('ferme')) return 'text-red';
+  return 'text-muted';
+};
+
 // Computed property to filter and sort results in real-time
 const filteredAndSortedResults = computed(() => {
   let list = [...results.value];
@@ -262,6 +281,8 @@ const startExtraction = () => {
     url.searchParams.append('lng', coords.value.lng.toString());
     url.searchParams.append('zoom', coords.value.zoom.toString());
   }
+
+  url.searchParams.append('profile', activeProfile.value);
 
   const token = localStorage.getItem('token');
   if (token) url.searchParams.append('token', token);
@@ -324,191 +345,183 @@ const logout = () => {
   <main class="dashboard-fullscreen">
     <div class="dashboard-layout">
       <!-- Left Panel: Sidebar Control Center -->
-      <aside class="dashboard-sidebar">
-        <header class="header">
-          <div class="brand-group">
-            <h1>GeoScraper <span class="brand-badge">Pro</span></h1>
-            <p>Google Maps to CRM Automation</p>
-          </div>
-        </header>
+      <aside class="sidebar">
+        <div class="sidebar-header">
+          <svg viewBox="0 0 256 256" class="sidebar-logo" fill="currentColor">
+            <path d="M 144 256 L 27.598 256 L 144 139.598 Z M 256 207.5 L 200 256 L 200 56 L 0 56 L 48 0 L 256 0 Z M 0 204.402 L 0 112 L 92.402 112 Z" />
+          </svg>
+          <button class="logout-icon-btn" @click="logout" title="Se déconnecter">
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line>
+            </svg>
+          </button>
+        </div>
+
+        <div class="workspace-row">
+          <span class="workspace-badge">G</span>
+          <span class="workspace-label">GeoScraper Pro</span>
+        </div>
 
         <div class="search-panel">
           <div class="input-group">
-            <label for="query">Type d'établissement</label>
-            <input type="text" id="query" v-model="query" placeholder="ex: Restaurants, Plombiers..." />
-          </div>
-          
-          <div class="input-group relative-input">
-            <div class="label-row">
-              <label for="location">Localisation</label>
-              <button 
-                type="button" 
-                class="map-trigger-btn" 
-                @click="openMapModal"
-                title="Sélectionner une zone géographique sur la carte"
-              >
-                Sélectionner sur la carte
-              </button>
-            </div>
-            <div class="input-with-action">
-              <input 
-                type="text" 
-                id="location" 
-                v-model="location" 
-                placeholder="ex: Lyon, France" 
-                :class="{ 'custom-coords-active': coords && location === `${coords.lat}, ${coords.lng}` }"
-              />
-              <button 
-                v-if="coords && location === `${coords.lat}, ${coords.lng}`" 
-                class="clear-coords-btn" 
-                @click="clearCoordsSelection" 
-                title="Réinitialiser les coordonnées"
-              >
-                ✕
-              </button>
-            </div>
-            <span v-if="coords && location === `${coords.lat}, ${coords.lng}`" class="coords-badge">
-              Zone personnalisée active (lat: {{coords.lat}}, lng: {{coords.lng}})
-            </span>
+            <label for="profile">Profil d'extraction</label>
+            <select id="profile" v-model="activeProfile" style="width: 100%; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 6px; padding: 0.6rem 0.8rem; color: var(--text-main); font-size: 13px;">
+              <option value="standard">Standard</option>
+              <option value="dev">Développeur Informatique (B2B)</option>
+            </select>
           </div>
 
           <div class="input-group">
-            <label for="limit">Résultats max</label>
+            <label for="query">Recherche</label>
+            <input type="text" id="query" v-model="query" placeholder="ex: Restaurants..." />
+          </div>
+          
+          <div class="input-group">
+            <div class="label-row">
+              <label for="location">Zone</label>
+              <button type="button" class="map-trigger-btn" @click="openMapModal" title="Carte">
+                <svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"></path><circle cx="12" cy="10" r="3"></circle></svg>
+              </button>
+            </div>
+            <div class="input-with-action">
+              <input type="text" id="location" v-model="location" placeholder="ex: Paris" :class="{ 'custom-coords-active': coords && location === `${coords.lat}, ${coords.lng}` }" />
+              <button v-if="coords && location === `${coords.lat}, ${coords.lng}`" class="clear-coords-btn" @click="clearCoordsSelection">✕</button>
+            </div>
+          </div>
+
+          <div class="input-group">
+            <label for="limit">Limite</label>
             <input type="number" id="limit" v-model="limit" min="1" max="50" />
           </div>
 
-          <div class="action-group">
-            <button class="primary-btn start-btn" @click="startExtraction" :disabled="isExtracting">
-              <span v-if="!isExtracting">Démarrer l'extraction</span>
-              <span v-else>Extraction... ({{ progress }}%)</span>
-            </button>
-            
-            <div class="progress-bar-container" v-if="isExtracting || progress === 100">
-              <div class="progress-bar" :style="{ width: progress + '%' }"></div>
-            </div>
+          <button class="scrape-btn" @click="startExtraction" :disabled="isExtracting">
+            <svg v-if="!isExtracting" viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2">
+              <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
+            </svg>
+            <span v-if="!isExtracting">Lancer l'extraction</span>
+            <span v-else>Extraction... {{ progress }}%</span>
+          </button>
+          
+          <div class="progress-bar-container" v-if="isExtracting || progress === 100">
+            <div class="progress-bar" :style="{ width: progress + '%' }"></div>
           </div>
-        </div>
-
-        <div class="sidebar-footer">
-          <button class="logout-btn" @click="logout">Se déconnecter</button>
         </div>
       </aside>
 
       <!-- Right Panel: Main Content Workspace -->
-      <section class="dashboard-main">
+      <main class="main-panel">
         <div class="panel-header">
-          <div class="panel-title-group">
-            <h2>Résultats en direct</h2>
-            <span class="stats-badge">{{ filteredAndSortedResults.length }} / {{ results.length }} affichés</span>
+          <div class="panel-header-left">
+            <div class="panel-badge">G</div>
+            <div>
+              <div class="panel-title">GeoScraper</div>
+              <div class="panel-subtitle">
+                <template v-if="query && location">{{ query }} · {{ location }}</template>
+                <template v-else>Prêt à extraire</template>
+              </div>
+            </div>
           </div>
           <button class="export-btn" @click="exportToExcel" :disabled="isExtracting || progress !== 100 || filteredAndSortedResults.length === 0">
-            Exporter vers Excel
+            Exporter Excel
           </button>
         </div>
 
-        <!-- Dynamic Sorting & Filtering Section -->
-        <div class="filters-bar">
-          <div class="filter-group">
-            <label for="rating-filter">⭐ Note min.</label>
-            <select id="rating-filter" v-model="minRating">
+        <!-- Stats Grid & Filters -->
+        <div class="stats-grid">
+          <div class="stat-cell">
+            <div class="stat-value">{{ filteredAndSortedResults.length }}</div>
+            <div class="stat-key">RÉSULTATS</div>
+            <div class="stat-sub">Lieux filtrés affichés</div>
+          </div>
+          <div class="stat-cell filter-cell">
+            <label>NOTE MIN.</label>
+            <select v-model="minRating">
               <option value="all">Toutes</option>
               <option value="3">3.0+</option>
               <option value="4">4.0+</option>
               <option value="4.5">4.5+</option>
             </select>
           </div>
-          <div class="filter-group">
-            <label for="website-filter">🌐 Site Web</label>
-            <select id="website-filter" v-model="websiteFilter">
+          <div class="stat-cell filter-cell">
+            <label>SITE WEB</label>
+            <select v-model="websiteFilter">
               <option value="all">Tous</option>
-              <option value="yes">Avec site internet</option>
-              <option value="no">Sans site internet</option>
+              <option value="yes">Avec site</option>
+              <option value="no">Sans site</option>
             </select>
           </div>
-          <div class="filter-group">
-            <label for="sort-by">↕️ Trier par</label>
-            <select id="sort-by" v-model="sortBy">
-              <option value="default">Ordre d'extraction</option>
-              <option value="rating-desc">Note : Décroissante</option>
-              <option value="rating-asc">Note : Croissante</option>
-              <option value="name-asc">Nom : A-Z</option>
-              <option value="name-desc">Nom : Z-A</option>
+          <div class="stat-cell filter-cell">
+            <label>TRIER PAR</label>
+            <select v-model="sortBy">
+              <option value="default">Défaut</option>
+              <option value="rating-desc">Note max</option>
+              <option value="name-asc">A-Z</option>
             </select>
           </div>
         </div>
-        
-        <div class="table-container">
-          <table>
-            <thead>
-              <tr>
-                <th class="name-cell">Nom de l'établissement</th>
-                <th class="phone-cell">Téléphone</th>
-                <th class="ouverture-cell">Ouverture</th>
-                <th class="website-cell">Site Web</th>
-                <th class="address-cell">Adresse</th>
-                <th class="note-cell">Note</th>
-                <th class="status-cell">Statut</th>
-              </tr>
-            </thead>
-            <tbody>
-              <!-- Show real results if any -->
-              <template v-if="filteredAndSortedResults.length > 0">
-                <tr v-for="result in filteredAndSortedResults" :key="result.id" :class="{'processing': result.status === 'Scraping...'}">
-                  <td class="name-cell">
-                    <a :href="`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(result.name + ' ' + (result.adresse && result.adresse !== 'N/A' && result.adresse !== 'Non trouvée' ? result.adresse : ''))}`" 
-                       target="_blank" 
-                       rel="noopener noreferrer" 
-                       class="business-link"
-                       :title="result.name">
-                      {{ result.name }}
-                    </a>
-                  </td>
-                  <td class="phone-cell">{{ result.phone }}</td>
-                  <td class="ouverture-cell">
-                    <span :class="{'text-open': result.ouverture === 'Ouvert' || result.ouverture === 'Ouvert 24h/24', 'text-closed': result.ouverture === 'Fermé'}" :title="result.ouverture">
-                      {{ result.ouverture }}
-                    </span>
-                  </td>
-                  <td class="website-cell">
-                    <a v-if="result.website && !['N/A', 'Non trouvé', 'Non renseigné'].includes(result.website)" 
-                       :href="result.website" 
-                       target="_blank" 
-                       rel="noopener noreferrer" 
-                       class="website-link"
-                       :title="result.website">
-                      {{ result.website }}
-                    </a>
-                    <span v-else class="website-text" :title="result.website">{{ result.website }}</span>
-                  </td>
-                  <td class="address-cell" :title="result.adresse">{{ result.adresse }}</td> 
-                  <td class="note-cell">{{ result.note }}</td>
-                  <td class="status-cell">
-                    <span class="status-badge" :class="result.status.toLowerCase().replace(/\./g, '')">
-                      {{ result.status }}
-                    </span>
-                  </td>
-                </tr>
-              </template>
-              
-              <!-- Skeleton rows when empty -->
-              <template v-else>
-                <tr v-for="i in limit || 5" :key="'skeleton-'+i" class="skeleton-row">
-                  <td class="name-cell"><div class="skeleton-box skeleton-text skeleton-wide"></div></td>
-                  <td class="phone-cell"><div class="skeleton-box skeleton-text"></div></td>
-                  <td class="ouverture-cell"><div class="skeleton-box skeleton-text skeleton-short"></div></td>
-                  <td class="website-cell"><div class="skeleton-box skeleton-text"></div></td>
-                  <td class="address-cell"><div class="skeleton-box skeleton-text skeleton-wide"></div></td>
-                  <td class="note-cell"><div class="skeleton-box skeleton-text skeleton-short"></div></td>
-                  <td class="status-cell"><div class="skeleton-box skeleton-badge"></div></td>
-                </tr>
-              </template>
-            </tbody>
-          </table>
+
+        <!-- Data table -->
+        <div class="data-table">
+          <div class="table-header-row">
+            <span class="col-nom">Nom</span>
+            <span class="col-phone">Téléphone</span>
+            <span class="col-addr">Adresse</span>
+            <span class="col-open">Ouverture</span>
+            <span class="col-score">Note</span>
+            <span class="col-status">Statut</span>
+          </div>
+          
+          <div class="table-body">
+            <template v-if="filteredAndSortedResults.length > 0">
+              <div class="table-row clickable" v-for="result in filteredAndSortedResults" :key="result.id" @click="openResult(result)">
+                <span class="col-nom row-name" :title="result.name">{{ result.name }}</span>
+                <span class="col-phone row-muted">{{ result.phone }}</span>
+                <span class="col-addr row-muted" :title="result.adresse">{{ result.adresse }}</span>
+                <span class="col-open font-semibold" :class="getOuvertureClass(result.ouverture)">{{ result.ouverture || 'Inconnu' }}</span>
+                <span class="col-score row-score">{{ result.note }}</span>
+                <span class="col-status">
+                  <span class="badge" :class="result.status.toLowerCase().replace(/\./g, '')">
+                    {{ result.status }}
+                  </span>
+                </span>
+              </div>
+            </template>
+            <template v-else-if="isExtracting">
+              <div class="table-row skeleton-row" v-for="i in Math.min(limit || 5, 8)" :key="'skel-'+i">
+                <span class="col-nom"><div class="skeleton-box w-3/4"></div></span>
+                <span class="col-phone"><div class="skeleton-box w-1/2"></div></span>
+                <span class="col-addr"><div class="skeleton-box w-full"></div></span>
+                <span class="col-open"><div class="skeleton-box w-2/3"></div></span>
+                <span class="col-score"><div class="skeleton-box w-1/3"></div></span>
+                <span class="col-status"><div class="skeleton-box w-2/3 badge-skel"></div></span>
+              </div>
+            </template>
+            <template v-else-if="results.length === 0">
+              <div class="empty-state">
+                <svg viewBox="0 0 24 24" class="empty-icon" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="M8 12h8M12 8v8" stroke-linecap="round"></path>
+                </svg>
+                <h3>Prêt pour l'extraction</h3>
+                <p>Définissez un profil, saisissez votre recherche et votre zone géographique à gauche, puis lancez l'extraction.</p>
+              </div>
+            </template>
+            <template v-else>
+              <div class="empty-state">
+                <svg viewBox="0 0 24 24" class="empty-icon" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <circle cx="12" cy="12" r="10"></circle>
+                  <path d="m15 9-6 6M9 9l6 6" stroke-linecap="round"></path>
+                </svg>
+                <h3>Aucun résultat trouvé</h3>
+                <p>Aucun prospect ne correspond aux filtres de recherche actuels. Essayez d'ajuster la note minimale ou le filtre de site web.</p>
+              </div>
+            </template>
+          </div>
         </div>
-      </section>
+      </main>
     </div>
 
-    <!-- Beautiful Map Modal with Glassmorphism -->
+    <!-- Map Modal -->
     <div class="map-modal-overlay" v-if="showMapModal" @click.self="closeMapModal">
       <div class="map-modal">
         <div class="map-modal-header">
@@ -519,69 +532,86 @@ const logout = () => {
         <div class="map-modal-body">
           <div class="map-search-bar">
             <div class="search-input-wrapper">
-              <input 
-                type="text" 
-                v-model="searchQueryMap" 
-                placeholder="Rechercher une ville, une adresse... (ex: Paris, France)" 
-                @keyup.enter="searchLocationOnMap"
-              />
+              <input type="text" v-model="searchQueryMap" placeholder="Ex: Paris, France" @keyup.enter="searchLocationOnMap"/>
               <button class="map-search-btn" @click="searchLocationOnMap" :disabled="isSearchingMap">
-                <span v-if="!isSearchingMap">Rechercher</span>
-                <span v-else>Recherche...</span>
+                {{ isSearchingMap ? '...' : 'Chercher' }}
               </button>
             </div>
             
-            <!-- Nominatim Autocomplete Dropdown -->
             <div class="map-search-results" v-if="searchResultsMap.length > 0">
-              <div 
-                v-for="result in searchResultsMap" 
-                :key="result.place_id" 
-                class="search-result-item" 
-                @click="selectSearchResult(result)"
-              >
-                <span class="icon">📍</span>
-                <span class="name">{{ result.display_name }}</span>
+              <div v-for="result in searchResultsMap" :key="result.place_id" class="search-result-item" @click="selectSearchResult(result)">
+                <span>📍</span> <span class="name">{{ result.display_name }}</span>
               </div>
             </div>
           </div>
           
           <div class="map-container-wrapper">
             <div id="map-container"></div>
-            <div class="map-center-indicator">
-              <span class="instruction-bubble">Cliquez ou déplacez le marqueur pour cibler</span>
-            </div>
           </div>
           
-          <div class="map-controls">
-            <div class="radius-slider-group">
-              <div class="slider-label">
-                <span>Rayon de visualisation</span>
-                <span class="radius-value">{{ (radius / 1000).toFixed(1) }} km</span>
-              </div>
-              <input 
-                type="range" 
-                v-model.number="radius" 
-                min="500" 
-                max="25000" 
-                step="500" 
-                @input="updateRadius"
-              />
-            </div>
+          <div class="radius-slider-group">
+            <div class="slider-label"><span>Rayon de visualisation</span><span>{{ (radius / 1000).toFixed(1) }} km</span></div>
+            <input type="range" v-model.number="radius" min="500" max="25000" step="500" @input="updateRadius"/>
           </div>
         </div>
         
         <div class="map-modal-footer">
-          <div class="selected-coords-info">
-            <span class="coords-tag">COORDONNÉES CIBLÉES</span>
-            <span class="coords-numbers" v-if="previewCoords">
-              {{ previewCoords.lat }}, {{ previewCoords.lng }}
+          <button class="cancel-btn" @click="closeMapModal">Annuler</button>
+          <button class="apply-btn" @click="applyCoordsSelection">Confirmer la zone</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Result Details Modal -->
+    <div class="result-modal-overlay" v-if="selectedResult" @click.self="closeResultModal">
+      <div class="result-modal">
+        <div class="result-modal-header">
+          <h3>Détails du résultat</h3>
+          <button class="close-btn" @click="closeResultModal">✕</button>
+        </div>
+        <div class="result-modal-body">
+          <div class="detail-row">
+            <span class="detail-label">Nom</span>
+            <span class="detail-value">{{ selectedResult.name || 'Non renseigné' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Téléphone</span>
+            <span class="detail-value">{{ selectedResult.phone || 'Non renseigné' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Adresse</span>
+            <span class="detail-value">{{ selectedResult.adresse || 'Non renseigné' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Ouverture</span>
+            <span class="detail-value font-semibold" :class="getOuvertureClass(selectedResult.ouverture)">{{ selectedResult.ouverture || 'Inconnu' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Note</span>
+            <span class="detail-value row-score">{{ selectedResult.note || 'N/A' }}</span>
+          </div>
+          <div class="detail-row">
+            <span class="detail-label">Site Web</span>
+            <span class="detail-value">
+              <a v-if="hasWebsite(selectedResult.website)" :href="selectedResult.website.startsWith('http') ? selectedResult.website : 'https://' + selectedResult.website" target="_blank" rel="noopener noreferrer" class="website-link">
+                {{ selectedResult.website }}
+              </a>
+              <span v-else>Non renseigné</span>
             </span>
-            <span class="coords-numbers" v-else>Chargement...</span>
           </div>
-          <div class="actions">
-            <button class="cancel-btn" @click="closeMapModal">Annuler</button>
-            <button class="apply-btn" @click="applyCoordsSelection">Confirmer la zone</button>
+          <div class="detail-row">
+            <span class="detail-label">Statut</span>
+            <span class="badge" :class="selectedResult.status.toLowerCase().replace(/\./g, '')">
+              {{ selectedResult.status }}
+            </span>
           </div>
+          <div class="detail-row" v-if="selectedResult.businessAnalysis">
+            <span class="detail-label" style="color: var(--primary);">Analyse Commerciale</span>
+            <span class="detail-value" style="background: var(--surface-raised); padding: 8px; border-radius: 6px; border-left: 3px solid var(--primary); font-size: 13px;">{{ selectedResult.businessAnalysis }}</span>
+          </div>
+        </div>
+        <div class="result-modal-footer">
+          <button class="cancel-btn" @click="closeResultModal">Fermer</button>
         </div>
       </div>
     </div>
@@ -589,722 +619,522 @@ const logout = () => {
 </template>
 
 <style scoped>
+/* ========================
+   DASHBOARD LAYOUT
+   ======================== */
 .dashboard-fullscreen {
-  position: relative;
   width: 100vw;
-  min-height: 100vh;
+  height: 100vh;
+  background: var(--bg-color);
   display: flex;
-  background: var(--surface-color);
 }
 
 .dashboard-layout {
   display: grid;
-  grid-template-columns: 320px 1fr;
+  grid-template-columns: 260px 1fr;
   width: 100%;
-  min-height: 100vh;
+  height: 100%;
+  background: var(--surface-color);
+  overflow: hidden;
+  font-family: 'Inter', sans-serif;
 }
 
-@media (max-width: 1024px) {
-  .dashboard-layout {
-    grid-template-columns: 1fr;
-  }
-}
-
-.dashboard-sidebar {
+/* ========================
+   SIDEBAR
+   ======================== */
+.sidebar {
+  width: 260px;
+  background: var(--surface-raised);
+  border-right: 1px solid var(--border-color);
   display: flex;
   flex-direction: column;
-  gap: 2.5rem;
-  border-right: 1px solid var(--border-color);
-  padding: 2rem;
-  background: var(--surface-color);
+  padding: 1.5rem;
 }
 
-@media (max-width: 1024px) {
-  .dashboard-sidebar {
-    border-right: none;
-    padding: 1.5rem;
-    border-bottom: 1px solid var(--border-color);
-  }
-}
-
-.brand-group h1 {
-  font-family: 'Outfit', sans-serif;
-  font-size: 1.6rem;
-  font-weight: 400;
-  letter-spacing: -0.02em;
-  color: var(--text-main);
+.sidebar-header {
   display: flex;
   align-items: center;
-  gap: 0.5rem;
+  justify-content: space-between;
+  margin-bottom: 2rem;
 }
 
-.brand-badge {
-  font-size: 0.6rem;
-  font-weight: 800;
+.sidebar-logo {
+  width: 28px;
+  height: 28px;
+  color: var(--text-main);
+}
+
+.logout-icon-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: color 0.15s;
+}
+
+.logout-icon-btn:hover {
+  color: #ef4444;
+}
+
+.workspace-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 2.5rem;
+  padding: 0.5rem;
+  background: var(--surface-color);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.workspace-badge {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 6px;
   background: var(--primary);
   color: var(--primary-contrast);
-  padding: 0.15rem 0.4rem;
-  border-radius: 4px;
-  letter-spacing: 0.05em;
-  text-transform: uppercase;
+  font-size: 14px;
+  font-weight: 700;
 }
 
-.brand-group p {
-  font-size: 0.75rem;
-  color: var(--text-muted);
-  margin-top: 0.25rem;
-  font-weight: 500;
+.workspace-label {
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 600;
 }
 
 .search-panel {
   display: flex;
   flex-direction: column;
-  gap: 1.25rem;
-}
-
-.start-btn {
-  width: 100%;
-}
-
-.action-group {
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  margin-top: 0.5rem;
-}
-
-.sidebar-footer {
-  margin-top: auto;
-  padding-top: 1rem;
-}
-
-.logout-btn {
-  background: transparent;
-  border: 1px solid var(--border-color);
-  color: #ef4444;
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 1rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  width: 100%;
-  transition: all 0.15s ease;
-}
-
-.logout-btn:hover {
-  background: #fef2f2;
-  border-color: #fca5a5;
-}
-
-/* Right main side */
-.dashboard-main {
-  display: flex;
-  flex-direction: column;
   gap: 1.5rem;
-  padding: 2rem 3rem;
-  background: var(--bg-color);
-  overflow-y: auto;
-  max-height: 100vh;
 }
 
-.text-open {
-  color: #059669; /* Green */
-  font-weight: 600;
-}
-
-.text-closed {
-  color: #dc2626; /* Red */
-  font-weight: 600;
-}
-
-/* Skeleton Loading Animation */
-.skeleton-row td {
-  padding: 1.125rem 1.5rem;
-}
-
-.skeleton-box {
-  background: #f4f4f5;
-  border-radius: 4px;
-}
-
-.skeleton-text {
-  height: 14px;
-  width: 70%;
-}
-
-.skeleton-wide {
-  width: 90%;
-}
-
-.skeleton-short {
-  width: 40%;
-}
-
-.skeleton-badge {
-  height: 20px;
-  width: 60px;
-  border-radius: 10px;
-}
-
-.panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 1rem;
-}
-
-.panel-title-group {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
-.panel-title-group h2 {
-  font-family: 'Outfit', sans-serif;
-  font-size: 1.2rem;
-  font-weight: 600;
-  color: var(--text-main);
-}
-
-.stats-badge {
-  display: inline-block;
-  padding: 0.2rem 0.6rem;
-  background: #f5f3ff;
-  border: 1px solid #ddd6fe;
-  color: var(--primary);
-  border-radius: 9999px;
-  font-size: 0.7rem;
-  font-weight: 600;
-}
-
-.export-btn {
-  background: var(--surface-color);
-  border: 1px solid var(--border-color);
-  color: var(--text-main);
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 1rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.export-btn:hover:not(:disabled) {
-  background: #fafafa;
-  border-color: var(--text-main);
-}
-
-.export-btn:disabled {
-  opacity: 0.4;
-  cursor: not-allowed;
-}
-
-/* Filters bar styling (very slim inline look) */
-.filters-bar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 1.5rem;
-  align-items: center;
-  padding-bottom: 0.5rem;
-  border-bottom: 1px solid #f4f4f5;
-}
-
-.filter-group {
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.filter-group label {
-  font-size: 0.7rem;
+.input-group label, .label-row label {
+  display: block;
+  font-size: 10px;
   font-weight: 700;
+  letter-spacing: 0.05em;
   color: var(--text-muted);
   text-transform: uppercase;
-  letter-spacing: 0.05em;
+  margin-bottom: 0.5rem;
 }
 
-.filter-group select {
+.input-group input {
+  width: 100%;
   background: var(--surface-color);
   border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 0.35rem 1.8rem 0.35rem 0.5rem;
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
   color: var(--text-main);
-  font-size: 0.8rem;
-  font-weight: 500;
-  transition: all 0.15s ease;
-  font-family: 'Inter', sans-serif;
-  cursor: pointer;
+  font-size: 13px;
+  transition: border-color 0.15s;
+}
+
+.input-group input:focus {
   outline: none;
-  appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2371717a' stroke-width='2'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
-  background-repeat: no-repeat;
-  background-position: right 0.5rem center;
-  background-size: 0.75rem;
-  min-width: 120px;
-}
-
-.filter-group select:focus {
   border-color: var(--primary);
-}
-
-/* Links & Text style in table cells */
-.business-link {
-  color: var(--text-main);
-  text-decoration: none;
-  font-weight: 600;
-  display: block;
-  max-width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.business-link:hover {
-  text-decoration: underline;
-}
-
-.website-link {
-  color: var(--text-muted);
-  text-decoration: none;
-  display: block;
-  max-width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.website-link:hover {
-  color: var(--text-main);
-  text-decoration: underline;
-}
-
-.website-text {
-  display: block;
-  max-width: 100%;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  color: var(--text-muted);
-}
-
-/* Specific column constraint styles to prevent table breaking */
-.name-cell {
-  max-width: 150px;
-}
-.phone-cell {
-  white-space: nowrap;
-}
-.email-cell {
-  max-width: 120px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.website-cell {
-  max-width: 140px;
-}
-.address-cell {
-  max-width: 200px;
-  white-space: normal !important;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  line-height: 1.4;
-  color: var(--text-muted);
-}
-.note-cell {
-  text-align: center;
-  font-weight: 600;
-}
-.status-cell {
-  white-space: nowrap;
-}
-
-/* Location input styling details */
-.relative-input {
-  position: relative;
 }
 
 .label-row {
   display: flex;
   justify-content: space-between;
-  align-items: center;
+  align-items: flex-end;
 }
 
 .map-trigger-btn {
-  background: none;
+  background: transparent;
   border: none;
   color: var(--primary);
-  font-size: 0.7rem;
-  font-weight: 700;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   cursor: pointer;
-  padding: 0;
-  transition: color 0.15s ease;
+  padding: 0 0 0.5rem 0;
 }
 
 .map-trigger-btn:hover {
   color: var(--primary-hover);
-  text-decoration: underline;
 }
 
 .input-with-action {
   position: relative;
   display: flex;
   align-items: center;
-  width: 100%;
-}
-
-.input-with-action input {
-  width: 100%;
-}
-
-.input-with-action input.custom-coords-active {
-  border-color: var(--primary);
-  background: #f5f3ff;
-  color: var(--primary);
-  font-weight: 500;
 }
 
 .clear-coords-btn {
   position: absolute;
   right: 8px;
-  background: #f4f4f5;
+  background: var(--surface-raised);
   border: none;
+  color: var(--text-muted);
   width: 20px;
   height: 20px;
   border-radius: 50%;
-  color: var(--text-muted);
-  font-size: 0.65rem;
-  font-weight: bold;
+  font-size: 10px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all 0.15s ease;
 }
 
 .clear-coords-btn:hover {
-  background: #ede9fe;
-  color: var(--primary);
+  background: #e4e4e7;
 }
 
-.coords-badge {
-  display: block;
-  font-size: 0.7rem;
-  font-weight: 500;
-  color: var(--primary);
-  margin-top: 0.25rem;
-}
-
-/* Map Modal Overlay styles */
-.map-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
-  background: rgba(9, 9, 11, 0.4);
-  backdrop-filter: blur(4px);
-  -webkit-backdrop-filter: blur(4px);
+.scrape-btn {
+  margin-top: 1rem;
   display: flex;
-  justify-content: center;
   align-items: center;
-  z-index: 9999;
+  justify-content: center;
+  gap: 8px;
+  background: #f5f3ff;
+  border: 1px solid #ddd6fe;
+  color: var(--primary);
+  padding: 0.8rem;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.scrape-btn:hover:not(:disabled) {
+  background: #ede9fe;
+}
+
+.scrape-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.progress-bar-container {
+  height: 4px;
+  background: var(--border-color);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.progress-bar {
+  height: 100%;
+  background: var(--primary);
+  transition: width 0.3s;
+}
+
+/* ========================
+   MAIN PANEL
+   ======================== */
+.main-panel {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 2rem 3rem;
+  gap: 1.5rem;
+  overflow: hidden;
+  background: var(--bg-color);
+}
+
+.panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.panel-header-left {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.panel-badge {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  background: var(--primary);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.panel-title {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.panel-subtitle {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.export-btn {
+  background: var(--surface-color);
+  border: 1px solid var(--border-color);
+  color: var(--text-main);
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.export-btn:hover:not(:disabled) {
+  background: var(--surface-raised);
+}
+
+.export-btn:disabled {
+  opacity: 0.3;
+}
+
+/* STATS GRID */
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--surface-color);
+  flex-shrink: 0;
+}
+
+.stat-cell {
+  padding: 1.25rem 1.5rem;
+  border-right: 1px solid var(--border-color);
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.stat-cell:last-child { border-right: none; }
+
+.stat-value {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.stat-key {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-top: 4px;
+}
+
+.stat-sub {
+  font-size: 11px;
+  color: #a1a1aa;
+  margin-top: 2px;
+}
+
+.filter-cell label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.filter-cell select {
+  background: transparent;
+  border: none;
+  color: var(--text-main);
+  font-size: 14px;
+  font-weight: 500;
+  outline: none;
+  cursor: pointer;
+}
+
+.filter-cell select option {
+  background: var(--surface-color);
+}
+
+/* DATA TABLE */
+.data-table {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  background: var(--surface-color);
+  overflow: hidden;
+}
+
+.table-header-row {
+  display: flex;
+  padding: 1rem 1.5rem;
+  background: var(--surface-raised);
+  border-bottom: 1px solid var(--border-color);
+}
+
+.table-header-row span {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+  text-transform: uppercase;
+}
+
+.table-body {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.table-row {
+  display: flex;
+  align-items: center;
+  padding: 1rem 1.5rem;
+  border-bottom: 1px solid var(--border-color);
+  gap: 16px;
+}
+.table-row:hover {
+  background: #fafafa;
+}
+.table-row.clickable {
+  cursor: pointer;
+}
+
+.col-nom   { flex: 2; min-width: 0; }
+.col-phone { flex: 1.5; min-width: 0; }
+.col-addr  { flex: 2.5; min-width: 0; }
+.col-open  { flex: 1.5; min-width: 0; }
+.col-score { flex: 0.8; min-width: 0; }
+.col-status { flex: 1.2; min-width: 0; }
+
+.row-name { font-size: 13px; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+.row-muted { font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.row-score { font-size: 13px; color: var(--warning); font-weight: 600; }
+
+.text-green { color: #059669; }
+.text-red { color: #dc2626; }
+.text-muted { color: var(--text-muted); }
+.font-semibold { font-weight: 600; }
+
+.badge {
+  display: inline-flex;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.badge.scraping { background: #fef3c7; color: #d97706; }
+.badge.terminé { background: #d1fae5; color: #059669; }
+
+/* Skeleton & Empty States */
+.skeleton-box {
+  background: linear-gradient(90deg, var(--surface-raised) 25%, #ededf0 37%, var(--surface-raised) 63%);
+  background-size: 200% 100%;
+  animation: skeleton-shimmer 1.4s ease infinite;
+  height: 16px;
+  border-radius: 4px;
+}
+.badge-skel {
+  height: 24px;
+  border-radius: 6px;
+}
+.w-full { width: 100%; } .w-3\/4 { width: 75%; } .w-1\/2 { width: 50%; } .w-1\/3 { width: 33%; } .w-2\/3 { width: 66%; }
+
+@keyframes skeleton-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 5rem 2rem;
+  text-align: center;
+  height: 100%;
+}
+
+.empty-icon {
+  width: 40px;
+  height: 40px;
+  color: var(--text-muted);
+  opacity: 0.5;
+  margin-bottom: 1.25rem;
+}
+
+.empty-state h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+  margin-bottom: 0.5rem;
+}
+
+.empty-state p {
+  font-size: 13px;
+  color: var(--text-muted);
+  max-width: 380px;
+  line-height: 1.6;
+}
+
+/* MAP MODAL */
+.map-modal-overlay {
+  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+  background: rgba(0,0,0,0.4); backdrop-filter: blur(4px);
+  display: flex; justify-content: center; align-items: center; z-index: 1000;
 }
 
 .map-modal {
-  background: var(--surface-color);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-lg);
-  width: 90%;
-  max-width: 700px;
-  max-height: 90vh;
-  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.05), 0 10px 10px -5px rgba(0, 0, 0, 0.03);
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  width: 600px; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 12px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 }
 
 .map-modal-header {
-  padding: 1rem 1.5rem;
-  border-bottom: 1px solid var(--border-color);
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display: flex; justify-content: space-between; padding: 1.5rem; border-bottom: 1px solid var(--border-color);
 }
+.map-modal-header h3 { font-size: 16px; color: var(--text-main); font-weight: 600; }
+.close-btn { background: none; border: none; color: var(--text-muted); cursor: pointer; }
 
-.map-modal-header h3 {
-  font-family: 'Outfit', sans-serif;
-  font-size: 1.1rem;
-  font-weight: 600;
-  color: var(--text-main);
-}
+.map-modal-body { padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+.search-input-wrapper { display: flex; gap: 8px; }
+.search-input-wrapper input { flex: 1; background: var(--surface-color); border: 1px solid var(--border-color); color: var(--text-main); padding: 0.5rem 1rem; border-radius: 6px; }
+.map-search-btn { background: var(--primary); color: white; border: none; padding: 0 1rem; border-radius: 6px; cursor: pointer; }
 
-.close-btn {
-  background: none;
-  border: none;
-  font-size: 1.1rem;
-  color: var(--text-muted);
-  cursor: pointer;
-  transition: color 0.15s ease;
-}
+#map-container { height: 300px; border-radius: 8px; }
 
-.close-btn:hover {
-  color: var(--text-main);
-}
-
-.map-modal-body {
-  padding: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  overflow-y: auto;
-}
-
-.map-search-bar {
-  position: relative;
-  display: flex;
-  flex-direction: column;
-  z-index: 1010;
-}
-
-.search-input-wrapper {
-  display: flex;
-  gap: 0.5rem;
-}
-
-.search-input-wrapper input {
-  flex: 1;
-  background: var(--surface-color);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 0.75rem;
-  font-size: 0.85rem;
-  font-family: 'Inter', sans-serif;
-}
-
-.search-input-wrapper input:focus {
-  outline: none;
-  border-color: var(--primary);
-}
-
-.map-search-btn {
-  background: var(--primary);
-  color: var(--primary-contrast);
-  border: none;
-  border-radius: var(--radius-sm);
-  padding: 0 1rem;
-  font-size: 0.85rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.map-search-btn:hover {
-  background: var(--primary-hover);
-}
-
-.map-search-results {
-  position: absolute;
-  top: 100%;
-  left: 0;
-  right: 0;
-  background: var(--surface-color);
-  border: 1px solid var(--border-color);
-  border-radius: var(--radius-sm);
-  box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
-  margin-top: 0.25rem;
-  max-height: 180px;
-  overflow-y: auto;
-}
-
-.search-result-item {
-  padding: 0.5rem 0.75rem;
-  cursor: pointer;
-  display: flex;
-  gap: 0.5rem;
-  font-size: 0.8rem;
-  border-bottom: 1px solid var(--border-color);
-  transition: background-color 0.1s ease;
-}
-
-.search-result-item:hover {
-  background: #fbfbfb;
-}
-
-.search-result-item .name {
-  color: var(--text-main);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.map-container-wrapper {
-  position: relative;
-  border-radius: var(--radius-md);
-  overflow: hidden;
-  border: 1px solid var(--border-color);
-}
-
-#map-container {
-  height: 300px;
-  width: 100%;
-  z-index: 1;
-}
-
-.map-center-indicator {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  pointer-events: none;
-  z-index: 1000;
-}
-
-.instruction-bubble {
-  background: var(--primary);
-  color: var(--primary-contrast);
-  padding: 0.3rem 0.6rem;
-  border-radius: 9999px;
-  font-size: 0.7rem;
-  font-weight: 500;
-}
-
-.map-controls {
-  background: #fbfbfb;
-  padding: 0.75rem 1rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid var(--border-color);
-}
-
-.radius-slider-group {
-  display: flex;
-  flex-direction: column;
-  gap: 0.375rem;
-}
-
-.slider-label {
-  display: flex;
-  justify-content: space-between;
-  font-size: 0.75rem;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-
-.radius-value {
-  color: var(--text-main);
-}
-
-.radius-slider-group input[type="range"] {
-  width: 100%;
-  height: 4px;
-  background: #e4e4e7;
-  border-radius: 2px;
-  outline: none;
-  -webkit-appearance: none;
-  cursor: pointer;
-}
-
-.radius-slider-group input[type="range"]::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: var(--primary);
-  transition: transform 0.1s ease;
-}
-
-.radius-slider-group input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.2);
-}
+.radius-slider-group input { width: 100%; margin-top: 8px; }
+.slider-label { display: flex; justify-content: space-between; color: var(--text-muted); font-size: 12px; }
 
 .map-modal-footer {
-  padding: 1rem 1.5rem;
-  border-top: 1px solid var(--border-color);
-  background: #fbfbfb;
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
+  display: flex; justify-content: flex-end; gap: 12px; padding: 1.5rem; border-top: 1px solid var(--border-color); background: var(--surface-raised);
+}
+.cancel-btn { background: var(--surface-color); color: var(--text-main); border: 1px solid var(--border-color); padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; }
+.apply-btn { background: var(--primary); color: white; border: none; padding: 0.5rem 1rem; border-radius: 6px; cursor: pointer; }
+
+/* RESULT MODAL */
+.result-modal-overlay {
+  position: fixed; top: 0; left: 0; width: 100vw; height: 100vh;
+  background: rgba(0,0,0,0.4); backdrop-filter: blur(4px);
+  display: flex; justify-content: center; align-items: center; z-index: 1000;
 }
 
-.selected-coords-info {
-  display: flex;
-  flex-direction: column;
-  gap: 0.15rem;
+.result-modal {
+  width: 500px; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 12px;
+  box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
 }
 
-.coords-tag {
-  font-size: 0.6rem;
-  font-weight: 800;
-  letter-spacing: 0.05em;
-  color: var(--text-muted);
+.result-modal-header {
+  display: flex; justify-content: space-between; padding: 1.5rem; border-bottom: 1px solid var(--border-color);
 }
+.result-modal-header h3 { font-size: 16px; color: var(--text-main); font-weight: 600; }
 
-.coords-numbers {
-  font-family: monospace;
-  font-size: 0.8rem;
-  font-weight: 600;
-  color: var(--text-main);
-}
+.result-modal-body { padding: 1.5rem; display: flex; flex-direction: column; gap: 1rem; }
+.detail-row { display: flex; flex-direction: column; gap: 4px; }
+.detail-label { font-size: 10px; font-weight: 700; letter-spacing: 0.08em; color: var(--text-muted); text-transform: uppercase; }
+.detail-value { font-size: 14px; color: var(--text-main); font-weight: 500; word-break: break-word; }
+.website-link { color: var(--primary); text-decoration: none; }
+.website-link:hover { text-decoration: underline; }
 
-.cancel-btn {
-  background: var(--surface-color);
-  border: 1px solid var(--border-color);
-  color: var(--text-muted);
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 1rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.cancel-btn:hover {
-  background: #fbfbfb;
-  color: var(--text-main);
-}
-
-.apply-btn {
-  background: var(--primary);
-  color: var(--primary-contrast);
-  border: none;
-  border-radius: var(--radius-sm);
-  padding: 0.5rem 1.25rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  cursor: pointer;
-  transition: all 0.15s ease;
-}
-
-.apply-btn:hover {
-  background: var(--primary-hover);
-}
-
-/* Leaflet Pin (Monochrome UI style override) */
-.custom-pin {
-  width: 24px;
-  height: 24px;
-  border-radius: 50% 50% 50% 0;
-  background: var(--primary);
-  position: absolute;
-  transform: rotate(-45deg);
-  left: 50%;
-  top: 50%;
-  margin: -12px 0 0 -12px;
-  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  border: 2px solid white;
-  z-index: 99;
-}
-
-.custom-pin::after {
-  content: '';
-  width: 8px;
-  height: 8px;
-  margin: 6px 0 0 6px;
-  background: white;
-  position: absolute;
-  border-radius: 50%;
+.result-modal-footer {
+  display: flex; justify-content: flex-end; padding: 1.5rem; border-top: 1px solid var(--border-color); background: var(--surface-raised);
 }
 </style>
