@@ -41,6 +41,7 @@ let marker: L.Marker | null = null;
 let circle: L.Circle | null = null;
 
 const openResult = (result: any) => {
+  if (window.getSelection()?.toString().length) return;
   selectedResult.value = result;
 };
 
@@ -360,15 +361,26 @@ const exportToExcel = () => {
   if (filteredAndSortedResults.value.length === 0) return;
 
   const dataForExcel = filteredAndSortedResults.value.map(item => ({
-    'Nom du Commerce': item.name,
+    'Nom': item.name,
     'Téléphone': item.phone,
-    'Ouverture': item.ouverture,
-    'Site Web': item.website,
     'Adresse': item.adresse,
-    'Note': item.note
+    'Site Web': item.website,
+    'Note': item.note,
+    'Ouverture': item.ouverture
   }));
 
   const worksheet = XLSX.utils.json_to_sheet(dataForExcel);
+  
+  // Set default column widths
+  worksheet['!cols'] = [
+    { wch: 45 }, // Nom
+    { wch: 20 }, // Téléphone
+    { wch: 60 }, // Adresse
+    { wch: 40 }, // Site Web
+    { wch: 10 }, // Note
+    { wch: 25 }  // Ouverture
+  ];
+
   const workbook = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(workbook, worksheet, "Commerces");
 
@@ -673,12 +685,6 @@ const logout = async () => {
                 {{ selectedResult.website }}
               </a>
               <span v-else>Non renseigné</span>
-            </span>
-          </div>
-          <div class="detail-row">
-            <span class="detail-label">Statut</span>
-            <span class="badge" :class="selectedResult.status.toLowerCase().replace(/\./g, '')">
-              {{ selectedResult.status }}
             </span>
           </div>
           <div class="detail-row" v-if="selectedResult.businessAnalysis">
@@ -1276,6 +1282,7 @@ const logout = async () => {
 .result-modal {
   width: 500px; background: var(--surface-color); border: 1px solid var(--border-color); border-radius: 12px;
   box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+  overflow: hidden;
 }
 
 .result-modal-header {
