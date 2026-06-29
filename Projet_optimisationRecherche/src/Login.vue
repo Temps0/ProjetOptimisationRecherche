@@ -16,13 +16,13 @@ const handleLogin = async () => {
     const response = await fetch('http://localhost:3000/api/login', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.value, password: password.value })
+      body: JSON.stringify({ email: email.value, password: password.value }),
+      credentials: 'include'
     });
     
     const data = await response.json();
     
     if (response.ok) {
-      localStorage.setItem('token', data.token);
       router.push('/dashboard');
     } else {
       errorMsg.value = data.error || 'Erreur lors de la connexion';

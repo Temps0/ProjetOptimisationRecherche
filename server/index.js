@@ -4,13 +4,51 @@ const puppeteer = require('puppeteer');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const db = require('./db');
+const cookieParser = require('cookie-parser');
+const rateLimit = require('express-rate-limit');
+const { z } = require('zod');
+const { LRUCache } = require('lru-cache');
+
+const registerSchema = z.object({
+    email: z.string().email('Email invalide'),
+    password: z.string().min(6, 'Le mot de passe doit contenir au moins 6 caractères'),
+    betaCode: z.string().min(1, 'Code beta requis')
+});
+
+const loginSchema = z.object({
+    email: z.string().email('Email invalide'),
+    password: z.string().min(1, 'Mot de passe requis')
+});
 
 const app = express();
-app.use(cors());
+app.use(cors({
+    origin: process.env.FRONTEND_URL || 'http://localhost:5173', // Dynamic or fallback
+    credentials: true
+}));
 app.use(express.json());
+app.use(cookieParser());
 
-const JWT_SECRET = 'supersecretbeta2026';
-const BETA_CODE = 'BETA2026';
+const JWT_SECRET = process.env.JWT_SECRET || 'supersecretbeta2026';
+const BETA_CODE = process.env.BETA_CODE || 'BETA2026';
+
+// Rate Limiting
+const authLimiter = rateLimit({
+    windowMs: 10 * 60 * 1000, // 10 minutes
+    max: 10, // Limit each IP to 10 requests per `window`
+    message: { error: 'Trop de tentatives, veuillez réessayer plus tard' }
+});
+
+const scrapeLimiter = rateLimit({
+    windowMs: 60 * 60 * 1000, // 1 hour
+    max: 100, // Limit each IP to 100 scrape requests per hour
+    message: { error: 'Limite de scraping atteinte pour cette heure' }
+});
+
+// Cache for scraping results
+const scrapeCache = new LRUCache({
+    max: 500,
+    ttl: 1000 * 60 * 60, // 1 hour
+});
 
 // Helper function to block heavy assets (images, fonts, videos)
 const optimizePage = async (page) => {
@@ -29,12 +67,12 @@ const optimizePage = async (page) => {
     }
 };
 
-app.post('/api/register', async (req, res) => {
-    const { email, password, betaCode } = req.body;
-
-    if (!email || !password || !betaCode) {
-        return res.status(400).json({ error: 'Tous les champs sont requis' });
+app.post('/api/register', authLimiter, async (req, res) => {
+    const result = registerSchema.safeParse(req.body);
+    if (!result.success) {
+        return res.status(400).json({ error: result.error.errors[0].message });
     }
+    const { email, password, betaCode } = result.data;
 
     if (betaCode !== BETA_CODE) {
         return res.status(403).json({ error: 'Code beta invalide' });
@@ -56,12 +94,12 @@ app.post('/api/register', async (req, res) => {
     }
 });
 
-app.post('/api/login', (req, res) => {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-        return res.status(400).json({ error: 'Email et mot de passe requis' });
+app.post('/api/login', authLimiter, (req, res) => {
+    const result = loginSchema.safeParse(req.body);
+    if (!result.success) {
+        return res.status(400).json({ error: result.error.errors[0].message });
     }
+    const { email, password } = result.data;
 
     db.get('SELECT * FROM users WHERE email = ?', [email], async (err, user) => {
         if (err) return res.status(500).json({ error: 'Erreur serveur' });
@@ -71,13 +109,61 @@ app.post('/api/login', (req, res) => {
         if (!validPassword) return res.status(401).json({ error: 'Identifiants invalides' });
 
         const token = jwt.sign({ id: user.id, email: user.email }, JWT_SECRET, { expiresIn: '24h' });
-        res.json({ token, email: user.email });
+        
+        // Set HttpOnly cookie
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax',
+            maxAge: 24 * 60 * 60 * 1000 // 24h
+        });
+
+        res.json({ email: user.email });
     });
 });
 
+app.post('/api/logout', (req, res) => {
+    res.clearCookie('token');
+    res.json({ message: 'Déconnecté' });
+});
 
-app.get('/api/scrape', async (req, res) => {
-    const { query, location, limit, token, lat, lng, zoom, profile } = req.query;
+app.get('/api/me', (req, res) => {
+    const token = req.cookies.token;
+    if (!token) return res.status(401).json({ error: 'Non autorisé' });
+    
+    try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        res.json({ email: decoded.email });
+    } catch (err) {
+        res.status(401).json({ error: 'Token invalide' });
+    }
+});
+
+
+let globalBrowser = null;
+let browserUseCount = 0;
+const MAX_BROWSER_USES = 50;
+
+const getBrowser = async () => {
+    if (globalBrowser && browserUseCount >= MAX_BROWSER_USES) {
+        console.log('Recycling Puppeteer browser instance...');
+        await globalBrowser.close().catch(() => {});
+        globalBrowser = null;
+        browserUseCount = 0;
+    }
+    if (!globalBrowser) {
+        globalBrowser = await puppeteer.launch({
+            headless: true,
+            args: ['--lang=fr-FR']
+        });
+    }
+    browserUseCount++;
+    return globalBrowser;
+};
+
+app.get('/api/scrape', scrapeLimiter, async (req, res) => {
+    const { query, location, limit, lat, lng, zoom, profile } = req.query;
+    const token = req.cookies.token;
 
     if (!token) {
         return res.status(401).json({ error: 'Non autorisé' });
@@ -102,7 +188,21 @@ app.get('/api/scrape', async (req, res) => {
         res.write(`data: ${JSON.stringify({ type, data })}\n\n`);
     };
 
-    let browser;
+    const maxResults = limit ? Math.min(parseInt(limit), 500) : 5;
+    
+    // Check Cache
+    const cacheKey = `${query}-${location}-${lat}-${lng}-${zoom}-${profile}-${maxResults}`;
+    if (scrapeCache.has(cacheKey)) {
+        console.log(`Cache hit for ${cacheKey}`);
+        sendEvent('progress', 50);
+        const cachedResults = scrapeCache.get(cacheKey);
+        cachedResults.forEach(result => sendEvent('result', result));
+        sendEvent('progress', 100);
+        sendEvent('done', true);
+        return res.end();
+    }
+
+    let browserContext;
     try {
         const hasCoords = lat && lng;
         if (hasCoords) {
@@ -112,11 +212,9 @@ app.get('/api/scrape', async (req, res) => {
         }
         sendEvent('progress', 5);
 
-        browser = await puppeteer.launch({
-            headless: true,
-            args: ['--no-sandbox', '--disable-setuid-sandbox', '--lang=fr-FR']
-        });
-        const page = await browser.newPage();
+        const browser = await getBrowser();
+        browserContext = await browser.createBrowserContext();
+        const page = await browserContext.newPage();
         
         // Optimizing the main scraping page by blocking heavy assets
         await optimizePage(page);
@@ -144,7 +242,8 @@ app.get('/api/scrape', async (req, res) => {
             if (consentButton) {
                 console.log('Accepting cookies...');
                 await consentButton.click();
-                await new Promise(r => setTimeout(r, 1000));
+                // We can use a small delay here since it's an interaction
+                await new Promise(r => setTimeout(r, 500));
             }
         } catch (e) {
             console.log('No cookie popup found');
@@ -158,41 +257,43 @@ app.get('/api/scrape', async (req, res) => {
             console.log('Timeout waiting for initial place links. Continuing...');
         }
 
-        const results = [];
-
-        // We will extract up to limit elements
-        const maxResults = limit ? parseInt(limit) : 5;
-
         // Scroll the results container to load more items if needed
         let loadedElementsCount = 0;
         let scrollAttempts = 0;
-        let lastLoadedCount = 0;
-        let noNewItemsAttempts = 0;
-
-        // Optimized scrolling delay from 2s to 1s
-        while (loadedElementsCount < maxResults && scrollAttempts < 100 && noNewItemsAttempts < 5) {
-            loadedElementsCount = await page.evaluate(() => document.querySelectorAll('a[href*="/maps/place/"]').length);
-            if (loadedElementsCount >= maxResults) break;
-
-            if (loadedElementsCount === lastLoadedCount) {
-                noNewItemsAttempts++;
-            } else {
-                noNewItemsAttempts = 0;
+        
+        // Dynamic wait loop instead of fixed timeout
+        while (loadedElementsCount < maxResults && scrollAttempts < 30) {
+            const currentCount = await page.evaluate(() => document.querySelectorAll('a[href*="/maps/place/"]').length);
+            
+            if (currentCount >= maxResults) {
+                loadedElementsCount = currentCount;
+                break;
             }
-            lastLoadedCount = loadedElementsCount;
 
-            await page.evaluate(() => {
-                const items = document.querySelectorAll('a[href*="/maps/place/"]');
-                if (items.length > 0) {
-                    items[items.length - 1].scrollIntoView();
+            if (currentCount === loadedElementsCount) {
+                // If count didn't increase, try scrolling
+                await page.evaluate(() => {
+                    const items = document.querySelectorAll('a[href*="/maps/place/"]');
+                    if (items.length > 0) {
+                        items[items.length - 1].scrollIntoView();
+                    }
+                    const feed = document.querySelector('div[role="feed"]');
+                    if (feed) feed.scrollBy(0, 10000);
+                });
+                
+                // Wait for network idle or a short dynamic timeout
+                try {
+                    await page.waitForFunction((prev) => {
+                        return document.querySelectorAll('a[href*="/maps/place/"]').length > prev;
+                    }, { timeout: 2000 }, currentCount);
+                } catch(e) {
+                    // Timeout means no new elements loaded in 2s
                 }
-                const feed = document.querySelector('div[role="feed"]');
-                if (feed) feed.scrollBy(0, 10000);
-            });
-            // Wait for new items to load - optimized to 1000ms
-            await new Promise(r => setTimeout(r, 1000));
+            }
+            
+            loadedElementsCount = await page.evaluate(() => document.querySelectorAll('a[href*="/maps/place/"]').length);
             scrollAttempts++;
-            sendEvent('progress', 10 + Math.floor((loadedElementsCount / maxResults) * 10)); // max 20%
+            sendEvent('progress', 10 + Math.floor((Math.min(loadedElementsCount, maxResults) / maxResults) * 10)); // max 20%
         }
 
         console.log(`Loaded ${loadedElementsCount} items in list. Extracting up to ${maxResults}...`);
@@ -209,6 +310,7 @@ app.get('/api/scrape', async (req, res) => {
         const linksToExtract = links.filter(l => l.name && l.url).slice(0, maxResults);
         const CONCURRENCY = 5;
         let extractedCount = 0;
+        const finalResults = [];
 
         for (let i = 0; i < linksToExtract.length; i += CONCURRENCY) {
             const batch = linksToExtract.slice(i, i + CONCURRENCY);
@@ -216,8 +318,9 @@ app.get('/api/scrape', async (req, res) => {
             await Promise.all(batch.map(async (place) => {
                 console.log(`Extracting: ${place.name}`);
 
+                let newPage = null;
                 try {
-                    const newPage = await browser.newPage();
+                    newPage = await browserContext.newPage();
                     // Optimizing detail page by blocking heavy assets
                     await optimizePage(newPage);
 
@@ -325,25 +428,29 @@ app.get('/api/scrape', async (req, res) => {
                         status: 'Extracted'
                     };
 
+                    finalResults.push(resultItem);
                     sendEvent('result', resultItem);
                     sendEvent('progress', 20 + Math.floor((extractedCount / linksToExtract.length) * 80));
 
-                    await newPage.close();
-
                 } catch (err) {
                     console.log(`Error extracting ${place.name}:`, err.message);
+                } finally {
+                    if (newPage) await newPage.close().catch(() => {});
                 }
             }));
         }
 
+        // Save to cache (cache for 1 hour handled by LRUCache)
+        scrapeCache.set(cacheKey, finalResults);
+
         console.log(`Finished extraction. Found ${extractedCount} results.`);
-        await browser.close();
+        if (browserContext) await browserContext.close();
         sendEvent('done', true);
         res.end();
 
     } catch (error) {
         console.error('Scraping error:', error);
-        if (browser) await browser.close();
+        if (browserContext) await browserContext.close();
         sendEvent('error', error.message);
         res.end();
     }
