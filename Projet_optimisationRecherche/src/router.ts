@@ -16,14 +16,22 @@ const router = createRouter({
   routes
 });
 
-router.beforeEach((to, from, next) => {
-  const token = localStorage.getItem('token');
-  if (to.meta.requiresAuth && !token) {
-    next('/login');
-  } else if ((to.path === '/login' || to.path === '/register' || to.path === '/') && token) {
-    next('/dashboard');
-  } else {
-    next();
+router.beforeEach(async (to, from) => {
+  let isAuthenticated = false;
+  
+  try {
+    const response = await fetch('http://localhost:3000/api/me', { credentials: 'include' });
+    if (response.ok) {
+      isAuthenticated = true;
+    }
+  } catch (e) {
+    console.error('Auth check failed', e);
+  }
+
+  if (to.meta.requiresAuth && !isAuthenticated) {
+    return '/login';
+  } else if ((to.path === '/login' || to.path === '/register' || to.path === '/') && isAuthenticated) {
+    return '/dashboard';
   }
 });
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, onBeforeUnmount, nextTick } from 'vue';
+import { ref, computed, onBeforeUnmount, nextTick, watch } from 'vue';
 import * as XLSX from 'xlsx';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -17,6 +17,13 @@ let eventSource: EventSource | null = null;
 const minRating = ref<string>('all');
 const websiteFilter = ref<string>('all');
 const sortBy = ref<string>('default');
+
+const currentPage = ref(1);
+const itemsPerPage = ref(20);
+
+watch([minRating, websiteFilter, sortBy], () => {
+  currentPage.value = 1;
+});
 
 // Map Selection & Modal State
 const showMapModal = ref(false);
@@ -260,11 +267,19 @@ const filteredAndSortedResults = computed(() => {
   return list;
 });
 
+const totalPages = computed(() => Math.ceil(filteredAndSortedResults.value.length / itemsPerPage.value) || 1);
+
+const paginatedResults = computed(() => {
+  const start = (currentPage.value - 1) * itemsPerPage.value;
+  return filteredAndSortedResults.value.slice(start, start + itemsPerPage.value);
+});
+
 const startExtraction = () => {
   if (!query.value || !location.value) return;
   isExtracting.value = true;
   progress.value = 0;
   results.value = [];
+  currentPage.value = 1;
   
   if (eventSource) {
     eventSource.close();
@@ -284,10 +299,7 @@ const startExtraction = () => {
 
   url.searchParams.append('profile', activeProfile.value);
 
-  const token = localStorage.getItem('token');
-  if (token) url.searchParams.append('token', token);
-
-  eventSource = new EventSource(url.toString());
+  eventSource = new EventSource(url.toString(), { withCredentials: true });
 
   eventSource.onmessage = (event) => {
     const message = JSON.parse(event.data);
@@ -335,8 +347,12 @@ const exportToExcel = () => {
 import { useRouter } from 'vue-router';
 const router = useRouter();
 
-const logout = () => {
-  localStorage.removeItem('token');
+const logout = async () => {
+  try {
+    await fetch('http://localhost:3000/api/logout', { method: 'POST', credentials: 'include' });
+  } catch (e) {
+    console.error(e);
+  }
   router.push('/login');
 };
 </script>
@@ -391,7 +407,7 @@ const logout = () => {
 
           <div class="input-group">
             <label for="limit">Limite</label>
-            <input type="number" id="limit" v-model="limit" min="1" max="50" />
+            <input type="number" id="limit" v-model="limit" min="1" max="500" />
           </div>
 
           <button class="scrape-btn" @click="startExtraction" :disabled="isExtracting">
@@ -473,7 +489,7 @@ const logout = () => {
           
           <div class="table-body">
             <template v-if="filteredAndSortedResults.length > 0">
-              <div class="table-row clickable" v-for="result in filteredAndSortedResults" :key="result.id" @click="openResult(result)">
+              <div class="table-row clickable" v-for="result in paginatedResults" :key="result.id" @click="openResult(result)">
                 <span class="col-nom row-name" :title="result.name">{{ result.name }}</span>
                 <span class="col-phone row-muted">{{ result.phone }}</span>
                 <span class="col-addr row-muted" :title="result.adresse">{{ result.adresse }}</span>
@@ -517,6 +533,12 @@ const logout = () => {
               </div>
             </template>
           </div>
+        </div>
+
+        <div class="pagination-controls" v-if="totalPages > 1 && !isExtracting">
+          <button class="page-btn" :disabled="currentPage === 1" @click="currentPage--">Précédent</button>
+          <span class="page-info">Page {{ currentPage }} / {{ totalPages }}</span>
+          <button class="page-btn" :disabled="currentPage === totalPages" @click="currentPage++">Suivant</button>
         </div>
       </main>
     </div>
@@ -1136,5 +1158,44 @@ const logout = () => {
 
 .result-modal-footer {
   display: flex; justify-content: flex-end; padding: 1.5rem; border-top: 1px solid var(--border-color); background: var(--surface-raised);
+}
+
+/* PAGINATION CONTROLS */
+.pagination-controls {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  padding: 1rem;
+  background: var(--surface-color);
+  border-top: 1px solid var(--border-color);
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.page-btn {
+  background: var(--surface-raised);
+  color: var(--text-main);
+  border: 1px solid var(--border-color);
+  padding: 0.5rem 1rem;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.page-btn:hover:not(:disabled) {
+  background: var(--primary);
+  color: white;
+  border-color: var(--primary);
+}
+
+.page-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.page-info {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-muted);
 }
 </style>
