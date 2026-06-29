@@ -274,6 +274,37 @@ const paginatedResults = computed(() => {
   return filteredAndSortedResults.value.slice(start, start + itemsPerPage.value);
 });
 
+const validateLimit = () => {
+  let val = Number(limit.value);
+  if (isNaN(val) || val === 0) val = 5;
+  limit.value = Math.min(Math.max(val, 1), 500);
+};
+
+let holdInterval: ReturnType<typeof setInterval> | null = null;
+let holdTimeout: ReturnType<typeof setTimeout> | null = null;
+
+const startSpin = (delta: number) => {
+  updateLimit(delta);
+  holdTimeout = setTimeout(() => {
+    holdInterval = setInterval(() => {
+      updateLimit(delta);
+    }, 50);
+  }, 400);
+};
+
+const stopSpin = () => {
+  if (holdTimeout) clearTimeout(holdTimeout);
+  if (holdInterval) clearInterval(holdInterval);
+  holdTimeout = null;
+  holdInterval = null;
+};
+
+const updateLimit = (delta: number) => {
+  let val = Number(limit.value);
+  if (isNaN(val) || val === 0) val = 5;
+  limit.value = Math.min(Math.max(val + delta, 1), 500);
+};
+
 const startExtraction = () => {
   if (!query.value || !location.value) return;
   isExtracting.value = true;
@@ -407,7 +438,29 @@ const logout = async () => {
 
           <div class="input-group">
             <label for="limit">Limite</label>
-            <input type="number" id="limit" v-model="limit" min="1" max="500" />
+            <div class="limit-input-wrapper">
+              <input type="number" id="limit" v-model="limit" min="1" max="500" @blur="validateLimit" />
+              <div class="limit-spin-buttons">
+                <button class="spin-btn up"
+                        @mousedown.prevent="startSpin(1)"
+                        @mouseup="stopSpin"
+                        @mouseleave="stopSpin"
+                        @touchstart.prevent="startSpin(1)"
+                        @touchend="stopSpin"
+                        @touchcancel="stopSpin">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 15l-6-6-6 6"/></svg>
+                </button>
+                <button class="spin-btn down"
+                        @mousedown.prevent="startSpin(-1)"
+                        @mouseup="stopSpin"
+                        @mouseleave="stopSpin"
+                        @touchstart.prevent="startSpin(-1)"
+                        @touchend="stopSpin"
+                        @touchcancel="stopSpin">
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
+                </button>
+              </div>
+            </div>
           </div>
 
           <button class="scrape-btn" @click="startExtraction" :disabled="isExtracting">
@@ -482,9 +535,9 @@ const logout = async () => {
             <span class="col-nom">Nom</span>
             <span class="col-phone">Téléphone</span>
             <span class="col-addr">Adresse</span>
-            <span class="col-open">Ouverture</span>
+            <span class="col-website">Site Web</span>
             <span class="col-score">Note</span>
-            <span class="col-status">Statut</span>
+            <span class="col-open">Ouverture</span>
           </div>
           
           <div class="table-body">
@@ -493,13 +546,14 @@ const logout = async () => {
                 <span class="col-nom row-name" :title="result.name">{{ result.name }}</span>
                 <span class="col-phone row-muted">{{ result.phone }}</span>
                 <span class="col-addr row-muted" :title="result.adresse">{{ result.adresse }}</span>
-                <span class="col-open font-semibold" :class="getOuvertureClass(result.ouverture)">{{ result.ouverture || 'Inconnu' }}</span>
-                <span class="col-score row-score">{{ result.note }}</span>
-                <span class="col-status">
-                  <span class="badge" :class="result.status.toLowerCase().replace(/\./g, '')">
-                    {{ result.status }}
-                  </span>
+                <span class="col-website">
+                  <a v-if="hasWebsite(result.website)" :href="result.website.startsWith('http') ? result.website : 'https://' + result.website" target="_blank" rel="noopener noreferrer" class="website-link" @click.stop>
+                    Visiter
+                  </a>
+                  <span v-else class="row-muted">Aucun</span>
                 </span>
+                <span class="col-score row-score">{{ result.note }}</span>
+                <span class="col-open row-muted" :class="getOuvertureClass(result.ouverture)">{{ result.ouverture || 'Inconnu' }}</span>
               </div>
             </template>
             <template v-else-if="isExtracting">
@@ -507,9 +561,9 @@ const logout = async () => {
                 <span class="col-nom"><div class="skeleton-box w-3/4"></div></span>
                 <span class="col-phone"><div class="skeleton-box w-1/2"></div></span>
                 <span class="col-addr"><div class="skeleton-box w-full"></div></span>
-                <span class="col-open"><div class="skeleton-box w-2/3"></div></span>
+                <span class="col-website"><div class="skeleton-box w-1/2"></div></span>
                 <span class="col-score"><div class="skeleton-box w-1/3"></div></span>
-                <span class="col-status"><div class="skeleton-box w-2/3 badge-skel"></div></span>
+                <span class="col-open"><div class="skeleton-box w-2/3"></div></span>
               </div>
             </template>
             <template v-else-if="results.length === 0">
@@ -606,7 +660,7 @@ const logout = async () => {
           </div>
           <div class="detail-row">
             <span class="detail-label">Ouverture</span>
-            <span class="detail-value font-semibold" :class="getOuvertureClass(selectedResult.ouverture)">{{ selectedResult.ouverture || 'Inconnu' }}</span>
+            <span class="detail-value" :class="getOuvertureClass(selectedResult.ouverture)">{{ selectedResult.ouverture || 'Inconnu' }}</span>
           </div>
           <div class="detail-row">
             <span class="detail-label">Note</span>
@@ -758,6 +812,77 @@ const logout = async () => {
 .input-group input:focus {
   outline: none;
   border-color: var(--primary);
+}
+
+.limit-input-wrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 38px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--surface-color);
+  transition: border-color 0.15s;
+}
+
+.limit-input-wrapper:focus-within {
+  border-color: var(--primary);
+}
+
+.input-group .limit-input-wrapper input {
+  flex: 1;
+  border: none;
+  border-radius: 0;
+  padding: 0.6rem 0.8rem;
+  padding-right: 28px;
+  text-align: left;
+  -moz-appearance: textfield;
+}
+
+.input-group .limit-input-wrapper input::-webkit-outer-spin-button,
+.input-group .limit-input-wrapper input::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.limit-spin-buttons {
+  position: absolute;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  width: 24px;
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  border-left: 1px solid var(--border-color);
+}
+
+.spin-btn {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition: background 0.15s, color 0.15s;
+}
+
+.spin-btn:hover {
+  background: var(--surface-raised);
+  color: var(--primary);
+}
+
+.spin-btn.up {
+  border-bottom: 1px solid var(--border-color);
+}
+
+.spin-btn svg {
+  width: 12px;
+  height: 12px;
 }
 
 .label-row {
@@ -1020,9 +1145,18 @@ const logout = async () => {
 .col-nom   { flex: 2; min-width: 0; }
 .col-phone { flex: 1.5; min-width: 0; }
 .col-addr  { flex: 2.5; min-width: 0; }
-.col-open  { flex: 1.5; min-width: 0; }
+.col-website { flex: 1.2; min-width: 0; }
 .col-score { flex: 0.8; min-width: 0; }
-.col-status { flex: 1.2; min-width: 0; }
+.col-open  { flex: 1.5; min-width: 0; }
+
+.website-link {
+  color: var(--primary);
+  text-decoration: none;
+  font-weight: 500;
+}
+.website-link:hover {
+  text-decoration: underline;
+}
 
 .row-name { font-size: 13px; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
 .row-muted { font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
