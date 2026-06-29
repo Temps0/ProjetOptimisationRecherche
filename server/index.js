@@ -44,10 +44,9 @@ const scrapeLimiter = rateLimit({
     message: { error: 'Limite de scraping atteinte pour cette heure' }
 });
 
-// Cache for scraping results
 const scrapeCache = new LRUCache({
     max: 500,
-    ttl: 1000 * 60 * 60, // 1 hour
+    ttl: 1000 * 60 * 5, // 5 minutes
 });
 
 // Helper function to block heavy assets (images, fonts, videos)
